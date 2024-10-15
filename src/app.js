@@ -4,21 +4,74 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
+const { body, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const csrf = require('csurf');
 
 const app = express();
 
-// Initialize SQLite Database with a file for persistence
-const db = new sqlite3.Database('database.sqlite');
+// ---------------------
+// Security Middleware
+// ---------------------
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [], // Upgrade HTTP to HTTPS
+      },
+    },
+  })
+);
 
-// Create Users, Submissions, and Login Attempts Tables
+// ---------------------
+// Logging Middleware
+// ---------------------
+app.use(morgan('combined')); // Logs all HTTP requests
+
+// ---------------------
+// View Engine Setup
+// ---------------------
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// ---------------------
+// Serve Static Files
+// ---------------------
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------------------
+// Initialize SQLite Database
+// ---------------------
+const db = new sqlite3.Database('database.sqlite', (err) => {
+  if (err) {
+    console.error('Error opening database:', err);
+    process.exit(1);
+  } else {
+    console.log('Connected to SQLite database.');
+  }
+});
+
+// ---------------------
+// Create Tables
+// ---------------------
 db.serialize(() => {
-  // Create Users Table with Salt Column
+  // Create Users Table with Salt and Role Columns
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE,
       salt TEXT,
-      password TEXT
+      password TEXT,
+      role TEXT DEFAULT 'user'
     )
   `);
 
@@ -60,27 +113,27 @@ db.serialize(() => {
   });
 });
 
-// Function to insert default users
+// ---------------------
+// Function to Insert Default Users
+// ---------------------
 function insertDefaultUsers() {
-  const insertUser = db.prepare(`INSERT INTO users (username, salt, password) VALUES (?, ?, ?)`);
+  const insertUser = db.prepare(`INSERT INTO users (username, salt, password, role) VALUES (?, ?, ?, ?)`);
 
   const users = [
-    { username: 'user1', password: 'password1' },
-    { username: 'user2', password: 'password2' },
+    { username: 'admin', password: 'Adm!n$tr0ngP@ssw0rd123', role: 'admin' },
+    { username: 'user1', password: 'Us3r#Secure2024!@#', role: 'user' },
+    { username: 'user2', password: 'P@ssw0rd!_Ex@mple#456', role: 'user' },
     // Add more users if needed
   ];
 
   users.forEach(user => {
-    // Generate a unique salt for each user
-    const salt = bcrypt.genSaltSync(10);
-    // Hash the password with the generated salt
+    const salt = bcrypt.genSaltSync(12);
     const hashedPassword = bcrypt.hashSync(user.password, salt);
-    // Insert the user into the database
-    insertUser.run(user.username, salt, hashedPassword, (err) => {
+    insertUser.run(user.username, salt, hashedPassword, user.role, (err) => {
       if (err) {
-        console.error('Error inserting user:', err);
+        console.error(`Error inserting user ${user.username}:`, err);
       } else {
-        console.log(`User ${user.username} inserted successfully.`);
+        console.log(`User ${user.username} with role ${user.role} inserted successfully.`);
       }
     });
   });
@@ -88,36 +141,114 @@ function insertDefaultUsers() {
   insertUser.finalize();
 }
 
+// ---------------------
 // Middleware Setup
+// ---------------------
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Check environment and set SESSION_SECRET accordingly
-let sessionSecret = process.env.SESSION_SECRET;
+// ---------------------
+// Session Configuration with Security Enhancements
+// ---------------------
 
-if (process.env.NODE_ENV !== 'production') {
-  // In non-production environments, use a default secret if SESSION_SECRET is not set
-  sessionSecret = sessionSecret ?? 'default_secret_key_for_non_production'; // Default secret for development
-} else {
-  // In production, throw an error and exit the application if SESSION_SECRET is not set
-  if (!sessionSecret) {
-    console.error('Error: SESSION_SECRET must be set in the environment variables in production.');
-    process.exit(1);
-  }
+// Retrieve SESSION_SECRET from environment variables
+const sessionSecret = process.env.SESSION_SECRET;
+
+// Check if SESSION_SECRET is set
+if (process.env.NODE_ENV === 'production' && !sessionSecret) {
+  console.error('Error: SESSION_SECRET must be set in the environment variables in production.');
+  process.exit(1);
 }
 
+if (process.env.NODE_ENV !== 'production' && !sessionSecret) {
+  console.warn('Warning: SESSION_SECRET is not set. Using default secret for development.');
+}
+
+// Configure session middleware
 app.use(
   session({
-    secret: sessionSecret,
+    secret: sessionSecret || 'default_secret_key_for_non_production', // Replace with a strong secret in production
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true, // Prevents client-side JavaScript from accessing the cookie
+      secure: process.env.NODE_ENV === 'production', // Ensures the browser only sends the cookie over HTTPS
+      maxAge: 1000 * 60 * 60 * 24, // 1 day
+      sameSite: 'lax', // Helps protect against CSRF
+    },
   })
 );
 
-// Authentication Middleware
+// ---------------------
+// CSRF Protection Middleware
+// ---------------------
+const csrfProtection = csrf();
+
+// Apply CSRF protection to all POST routes
+app.use(csrfProtection);
+
+// Pass CSRF token to all views
+app.use((req, res, next) => {
+  res.locals.csrfToken = req.csrfToken();
+  next();
+});
+
+// ---------------------
+// Rate Limiting Middleware
+// ---------------------
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 login requests per windowMs
+  message: 'Too many login attempts from this IP, please try again after 15 minutes.',
+});
+
+const generalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+});
+
+// Apply general rate limiter to all requests
+app.use(generalLimiter);
+
+// Error-Handling Middleware
+app.use((err, req, res, next) => {
+  // Log error details to the console
+  console.error(err); // You can customize the log format as needed
+
+  // Handle CSRF Token Errors
+  if (err.code === 'EBADCSRFTOKEN') {
+    // Render a specific CSRF error page with a 403 status
+    return res.status(403).send('Forbidden');
+  }
+
+  // Handle Other Errors
+  if (process.env.NODE_ENV === 'production') {
+    // In Production, send a generic error message
+    return res.status(500).send('An unexpected error occurred. Please try again later.');
+  } else {
+    // In Development, send detailed error information
+    throw err;
+  }
+});
+
+// ---------------------
+// Helper Functions for Authentication and Authorization
+// ---------------------
+
+// Authentication Middleware: Ensures the user is logged in
 function requireLogin(req, res, next) {
   if (!req.session.userId) {
-    res.redirect('/login');
-  } else {
+    return res.redirect('/login');
+  }
+  next();
+}
+
+// Authorization Middleware: Checks if the user has the required role
+function requireRole(roles) {
+  return function (req, res, next) {
+    if (!req.session.userRole || !roles.includes(req.session.userRole)) {
+      return res.status(403).send('Access denied.');
+    }
     next();
   }
 }
@@ -135,20 +266,52 @@ function recordLoginAttempt(username, success) {
   );
 }
 
+// ---------------------
+// HTTPS Enforcement Middleware
+// ---------------------
+function enforceHTTPS(req, res, next) {
+  if (process.env.NODE_ENV === 'production' && req.headers['x-forwarded-proto'] !== 'https') {
+    // Redirect to HTTPS
+    return res.redirect(`https://${req.headers.host}${req.url}`);
+  }
+  next();
+}
+
+app.use(enforceHTTPS);
+
+// ---------------------
 // Routes
+// ---------------------
 
 // Redirect root URL to login page
 app.get('/', (req, res) => {
   res.redirect('/login');
 });
 
+// ---------------------
+// Login Routes
+// ---------------------
+
 // Login Page
 app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, 'views/login.html'));
+  res.render('login', { error: null });
 });
 
-// Handle Login
-app.post('/login', (req, res) => {
+// Handle Login with Input Validation and Rate Limiting
+app.post('/login', loginLimiter, [
+  body('username')
+    .trim()
+    .isAlphanumeric().withMessage('Username must be alphanumeric.')
+    .isLength({ min: 3, max: 20 }).withMessage('Username must be between 3 and 20 characters.'),
+  body('password')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long.')
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    // If validation errors exist, render the login page with errors
+    return res.status(400).render('login', { error: errors.array()[0].msg });
+  }
+
   const { username, password } = req.body;
 
   db.get(
@@ -158,7 +321,7 @@ app.post('/login', (req, res) => {
       if (err) {
         console.error('Database error:', err);
         recordLoginAttempt(username, false);
-        return res.send('Error logging in.');
+        return res.status(500).render('login', { error: 'Internal server error.' });
       }
       if (user) {
         // Retrieve the stored salt
@@ -167,28 +330,47 @@ app.post('/login', (req, res) => {
         const hashedInputPassword = bcrypt.hashSync(password, salt);
         // Compare the hashed input password with the stored hashed password
         if (hashedInputPassword === user.password) {
+          // Store user ID and role in the session
           req.session.userId = user.id;
+          req.session.userRole = user.role;
           recordLoginAttempt(username, true);
-          res.redirect('/form');
+          return res.redirect('/form');
         } else {
           recordLoginAttempt(username, false);
-          res.send('Invalid credentials. <a href="/login">Try again</a>');
+          return res.status(401).render('login', { error: 'Invalid credentials.' });
         }
       } else {
         recordLoginAttempt(username, false);
-        res.send('Invalid credentials. <a href="/login">Try again</a>');
+        return res.status(401).render('login', { error: 'Invalid credentials.' });
       }
     }
   );
 });
 
+// ---------------------
+// Form Submission Routes
+// ---------------------
+
 // Form Submission Page
 app.get('/form', requireLogin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'views/form.html'));
+  res.render('form', { role: req.session.userRole, error: null });
 });
 
-// Handle Form Submission
-app.post('/form', requireLogin, (req, res) => {
+// Handle Form Submission with Input Validation and Sanitization
+app.post('/form', requireLogin, [
+  body('name').trim().notEmpty().withMessage('Name is required.'),
+  body('email').isEmail().withMessage('Invalid email address.').normalizeEmail(),
+  body('phone').trim().optional({ checkFalsy: true }).isMobilePhone().withMessage('Invalid phone number.'),
+  body('country').trim().notEmpty().withMessage('Country is required.'),
+  body('gender').isIn(['Male', 'Female', 'Other']).withMessage('Invalid gender selection.'),
+  body('qualification').trim().notEmpty().withMessage('Qualification is required.')
+], (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    // If validation errors exist, render the form page with errors
+    return res.status(400).render('form', { role: req.session.userRole, error: errors.array()[0].msg });
+  }
+
   const { name, email, phone, country, gender, qualification } = req.body;
   const userId = req.session.userId;
 
@@ -199,26 +381,58 @@ app.post('/form', requireLogin, (req, res) => {
     function (err) {
       if (err) {
         console.error('Error saving submission:', err);
-        res.send('Error saving data.');
+        return res.status(500).send('Error saving data.');
       } else {
-        res.redirect('/thankyou');
+        return res.redirect('/thankyou');
       }
     }
   );
 });
 
-// Thank You Page with Logout Feature
-app.get('/thankyou', requireLogin, (req, res) => {
-  res.sendFile(path.join(__dirname, 'views/thankyou.html'));
+// ---------------------
+// Admin Routes
+// ---------------------
+
+// Admin Dashboard Route (Accessible only to admins)
+app.get('/admin', requireLogin, requireRole(['admin']), (req, res) => {
+  // Fetch all users as an example
+  db.all(`SELECT id, username, role FROM users`, (err, users) => {
+    if (err) {
+      console.error('Error fetching users:', err);
+      return res.status(500).send('Internal server error.');
+    }
+    res.render('admin', { users });
+  });
 });
+
+// ---------------------
+// Thank You Routes
+// ---------------------
+
+// Thank You Page
+app.get('/thankyou', requireLogin, (req, res) => {
+  res.render('thankyou', { role: req.session.userRole });
+});
+
+// ---------------------
+// Logout Routes
+// ---------------------
 
 // Handle Logout
 app.get('/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/login');
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Error destroying session:', err);
+      return res.status(500).send('Error logging out.');
+    }
+    res.redirect('/login');
+  });
 });
 
+// ---------------------
 // Start the Server
-app.listen(3000, () => {
-  console.log('App running on http://localhost:3000');
+// ---------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`App running on http://localhost:${PORT}`);
 });

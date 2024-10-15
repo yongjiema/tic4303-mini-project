@@ -131,3 +131,6 @@ dist
 
 # sqlite
 *.sqlite
+
+# Tailwind CSS build output
+src/public/css/tailwind.min.css
