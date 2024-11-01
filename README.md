@@ -23,3 +23,21 @@ The application should now be running at http://localhost:3000.
 - Username: admin, Password: Adm!n$tr0ngP@ssw0rd123, Role: admin
 - Username: user1, Password: Us3r#Secure2024!@#, Role: user
 - Username: user2, Password: P@ssw0rd!_Ex@mple#456, Role: user
+
+## Building and Running with Docker
+
+1. Build the Docker image: `sh build-docker-image.sh`
+2. Run the Docker container: `sh run-docker-image.sh`
+
+The application should now be running at http://localhost:3000.
+
+## Deploy to Kubernetes
+
+For a Minikube-based Kubernetes deployment:
+
+1. Build the Docker image: `sh build-docker-image.sh`
+2. Deploy using Minikube: `sh deploy-using-minikube.sh`
+
+The application should now be running at http://localhost:3000.
+
+

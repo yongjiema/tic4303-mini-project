@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tic4303-mini-project
+  namespace: tic4303-mini-project-namespace
+  labels:
+    app: tic4303-mini-project
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tic4303-mini-project
+  template:
+    metadata:
+      labels:
+        app: tic4303-mini-project
+    spec:
+      serviceAccountName: tic4303-mini-project-sa
+      containers:
+        - name: tic4303-mini-project
+          image: tic4303-mini-project:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          securityContext:
+            runAsUser: 1000 # Security: Sets group ownership on mounted volumes, ensuring access for the non-root user.
+            allowPrivilegeEscalation: false # Security: Prevents privilege escalation, enforcing a lower privilege level.
+          env:
+            - name: DATABASE_PATH
+              value: "/data/database.sqlite"
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tic4303-mini-project-secret
+                  key: SESSION_SECRET
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: tic4303-mini-project-config
+                  key: NODE_ENV
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: tic4303-mini-project-config
+                  key: APP_NAME
+          volumeMounts:
+            - mountPath: /data
+              name: sqlite-storage
+      volumes:
+        - name: sqlite-storage
+          persistentVolumeClaim:
+            claimName: tic4303-mini-project-pvc

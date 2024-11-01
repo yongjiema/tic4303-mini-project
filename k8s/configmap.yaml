@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tic4303-mini-project-config
+  namespace: tic4303-mini-project-namespace
+data:
+  NODE_ENV: "development"
+  APP_NAME: "TIC4303 Mini Project"
+  # Security: ConfigMap separates non-sensitive configuration from application code. For sensitive data, use a Secret instead.

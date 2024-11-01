@@ -1,0 +1,15 @@
+# Ignore Git files
+**/.git
+**/.gitignore
+
+# Ignore dev container files
+/.devcontainer
+
+# Ignore editors' settings
+**/.editorconfig
+
+# Ignore Dependency directories
+node_modules
+
+# Ignore SQLite files
+*.sqlite

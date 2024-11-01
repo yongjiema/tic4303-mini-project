@@ -1,0 +1,4 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tic4303-mini-project-namespace # Security: Namespace provides resource isolation, preventing unauthorized access from other namespaces.

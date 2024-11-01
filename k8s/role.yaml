@@ -1,0 +1,10 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: tic4303-mini-project-namespace
+  name: tic4303-mini-project-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "create", "update", "delete"]
+    # Security: Role restricts access to essential resources, following the principle of least privilege.
