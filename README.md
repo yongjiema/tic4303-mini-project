@@ -26,8 +26,8 @@ The application should now be running at http://localhost:3000.
 
 ## Building and Running with Docker
 
-1. Build the Docker image: `sh build-docker-image.sh`
-2. Run the Docker container: `sh run-docker-image.sh`
+1. Build the Docker image: `sh scripts/build-docker-image.sh` or `scripts\build-docker-image.bat`
+2. Run the Docker container: `sh scripts/run-docker-image.sh` or `scripts\run-docker-image.bat`
 
 The application should now be running at http://localhost:3000.
 
@@ -35,8 +35,8 @@ The application should now be running at http://localhost:3000.
 
 For a Minikube-based Kubernetes deployment:
 
-1. Build the Docker image: `sh build-docker-image.sh`
-2. Deploy using Minikube: `sh deploy-using-minikube.sh`
+1. Build the Docker image: `sh scripts/build-docker-image.sh` or `scripts\deploy-using-minikube.bat`
+2. Deploy using Minikube: `sh scripts/deploy-using-minikube.sh` or `scripts\undeploy-using-minikube.bat`
 
 The application should now be running at http://localhost:3000.
 
