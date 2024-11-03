@@ -13,7 +13,6 @@ if %errorlevel% equ 0 (
 )
 for /f %%i in ('powershell -command "[Convert]::ToBase64String((1..32 | ForEach-Object {Get-Random -Minimum 0 -Maximum 255}))"') do set "SESSION_SECRET=%%i"
 kubectl create secret generic tic4303-mini-project-secret ^
-    --from-literal=NODE_ENV=development ^
     --from-literal=SESSION_SECRET=%SESSION_SECRET% ^
     -n tic4303-mini-project-namespace
 kubectl apply -f k8s/
