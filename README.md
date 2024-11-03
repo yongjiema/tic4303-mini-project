@@ -35,7 +35,7 @@ The application should now be running at http://localhost:3000.
 
 For a Minikube-based Kubernetes deployment:
 
-1. Build the Docker image: `sh scripts/build-docker-image.sh` or `scripts\build-using-minikube.bat`
+1. Build the Docker image: `sh scripts/build-docker-image.sh` or `scripts\build-docker-image.bat`
 2. Deploy using Minikube: `sh scripts/deploy-using-minikube.sh` or `scripts\deploy-using-minikube.bat`
 
 The application should now be running at http://localhost:3000.
